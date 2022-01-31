@@ -69,7 +69,7 @@ class FFMpeg:
         msg = self.__PROGRAM_NAME+(": %s" % msg)+os.linesep
         sys.stderr.write(msg)
         if self.__logfile != "":
-            f = open(self.__logfile,"ab")
+            f = open(self.__logfile,"a")
             f.write(msg)
             f.close()
 
@@ -220,7 +220,7 @@ class FFMpeg:
         return rc
 
     def __get_indexes(self,input_file):
-        av_re = re.compile(r"\s*Stream\s#\d+:(\d+)[^\d].*(Audio|Video)")
+        av_re = re.compile(r"\s*Stream\s#\d+[\(\w\)]*:(\d+)[^\d].*(Audio|Video)")
         audio = []
         video = []
         cmd = 'ffmpeg.exe -i "'+input_file+'"'

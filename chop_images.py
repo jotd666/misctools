@@ -1,6 +1,7 @@
 # standard imports
-import os,sys,glob,re
+import os,sys,glob,re,itertools
 import argparse,traceback
+from PIL import Image
 
 
 
@@ -88,7 +89,7 @@ class Grep:
         return self.__temp_directory
 
     def __delete_temp_directory(self):
-        if self.__temp_directory != None:
+        if self.__temp_directory:
             [rc,output] = python_lacks.rmtree(self.__temp_directory)
             if rc == 0:
                 self.__temp_directory = None
@@ -113,14 +114,8 @@ class Grep:
         finally:
             self.__delete_temp_directory()
 
-        return self.__found
-# uncomment if module mode is required
-##    def init(self,output_file):
-##        """ module mode """
-##        # set the object parameters using passed arguments
-##        self.__output_file = output_file
-##        self.__purge_log()
-##        self.__doit()
+
+
 
     def __do_init(self):
         #count_usage.count_usage(self.__PROGRAM_NAME,1)
@@ -129,7 +124,7 @@ class Grep:
         self.__doit()
 
     def __purge_log(self):
-        if self.__logfile != "":
+        if self.__logfile:
             try:
                 os.remove(self.__logfile)
             except:
@@ -140,13 +135,10 @@ class Grep:
             msg = self.__PROGRAM_NAME+(": %s" % msg)+os.linesep
         else:
             msg += os.linesep
-        try:
-            sys.stderr.write(msg)
-            sys.stderr.flush()
-        except:
-            # ssh tunneling bug workaround
-            pass
-        if self.__logfile != "":
+        sys.stderr.write(msg)
+        sys.stderr.flush()
+
+        if self.__logfile:
             f = open(self.__logfile,"a")
             f.write(msg)
             f.close()
@@ -181,70 +173,48 @@ class Grep:
         # Standard argparse parameters can also be used (eg. type=int for automatic convertion)
         # Exemple :
         #   My-Super-Opt --> self.__my_super_opt
-        self.__ARG_PARSER.accept_positional_arguments("filenames", "Pattern [Files]")
-        self.__ARG_PARSER.add_argument("word-regexp", "force PATTERN to match only whole words", short_opt="w")
-        self.__ARG_PARSER.add_argument("ignore-case", "ignore case distinctions", short_opt="i")
-        self.__ARG_PARSER.add_argument("invert-match", "select non-matching lines", short_opt="v")
-        self.__ARG_PARSER.add_argument("files-with-matches", "only print FILE names containing matches", short_opt="l")
-        self.__ARG_PARSER.add_argument("line-number", "line number with output lines", short_opt="n")
-        self.__ARG_PARSER.add_argument("clearcase-versions", "scan all clearcase versions of the current branch")
+        self.__ARG_PARSER.accept_positional_arguments("filenames", "[Files]")
+        self.__ARG_PARSER.add_argument("nb-pieces=", "number of images to split into",type=int,required=True)
+        self.__ARG_PARSER.add_argument("output-directory=", "output directory", default=".")
+        self.__ARG_PARSER.add_argument("Vertically", "split vertically instead of horizontally")
 
-    def __process_file(self,filepath):
-        f = open(filepath,"r")
-        lineno = 0
-        for l in f:
-            lineno += 1
-            l = l.rstrip("\n")
-            if ((re.search(self.__pattern,l)==None) == self.__invert_match):
-                self.__found = True
-                if self.__files_with_matches:
-                    self.__output_stream.write(filepath+"\n")
-                    break
-                else:
-                    if len(self.__input_files)>1:
-                        self.__output_stream.write(filepath+":")
-                    if self.__line_number:
-                        self.__output_stream.write("%d:" % lineno)
-
-                    self.__output_stream.write(l+"\n")
-        f.close()
 
     def __doit(self):
-        if len(self.__filenames)==0:
-            self.__error("No pattern specified")
-        elif len(self.__filenames)==1:
-            self.__input_files = ["-"]
-        else:
-            self.__input_files = []
-            for f in self.__filenames[1:]:
-                if self.__clearcase_versions:
-                    input_files= glob.glob(f)
-                    import clearcase_ucm as clearcase
-                    [rc,output] = clearcase.cleartool("lsvtree",["-s"]+input_files,exception_on_error=True)
-                    for l in output.split("\n"):
-                        l = l.strip()
-                        sl = l.split("@@")
-                        if len(sl)==2:
-                            v = os.path.basename(sl[1]) # get version final name
-                            if (v.isdigit() and int(v)!=0) or v=="CHECKEDOUT":
-                                self.__input_files.append(l)
+        filenames = list(itertools.chain.from_iterable(glob.glob(f) for f in self.__filenames))
+        if not filenames:
+            self.__error("No input files")
+        for infile in filenames:
+            img = Image.open(infile)
+            if self.__vertically:
+                outw = img.size[0]
+                divided = img.size[1]
+                outh = divided//self.__nb_pieces
+            else:
+                divided = img.size[0]
+                outw = divided//self.__nb_pieces
+                outh = img.size[1]
+            self.__message("Processing {}, width {}, height {} into {} images ({},{})".format(infile,img.size[0],img.size[1],
+            self.__nb_pieces,outw,outh))
+            if divided % self.__nb_pieces:
+                self.__error("Can't split image evenly")
+            curx=0
+            cury=0
+            for i in range(self.__nb_pieces):
+                outbase,ext = os.path.splitext(os.path.basename(infile))
+                outbase = "{}_{:02d}{}".format(outbase,i,ext)
+
+                outfile = os.path.join(self.__output_directory,outbase)
+                outimg = Image.new("RGB",(outw,outh))
+
+
+                outimg.paste(img,(-curx,-cury))
+                if img.mode=="P":
+                    outimg = outimg.convert(img.mode,palette = Image.ADAPTIVE)
+                outimg.save(outfile)
+                if self.__vertically:
+                    cury += outh
                 else:
-                    self.__input_files.extend(glob.glob(f))
-
-        flags = 0
-        pattern = self.__filenames[0]
-        if self.__ignore_case:
-            flags |= re.IGNORECASE
-        if self.__word_regexp:
-            pattern = r"\b"+pattern+r"\b"
-
-        self.__found = False
-        self.__pattern = re.compile(pattern,flags)
-        self.__output_stream = sys.stdout
-        for f in self.__input_files:
-            self.__process_file(f)
-
-        return self.__found
+                    curx += outw
 
 if __name__ == '__main__':
     """
@@ -254,6 +224,4 @@ if __name__ == '__main__':
 
 
     o = Grep()
-    found = o._init_from_sys_args()
-    if not found:
-        sys.exit(1)
+    o._init_from_sys_args()
