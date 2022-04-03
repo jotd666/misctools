@@ -174,7 +174,8 @@ class Grep:
         # Exemple :
         #   My-Super-Opt --> self.__my_super_opt
         self.__ARG_PARSER.accept_positional_arguments("filenames", "[Files]")
-        self.__ARG_PARSER.add_argument("nb-pieces=", "number of images to split into",type=int,required=True)
+        self.__ARG_PARSER.add_argument("nb-pieces=", "number of images to split into",type=int)
+        self.__ARG_PARSER.add_argument("piece-size=", "size of the split image",type=int)
         self.__ARG_PARSER.add_argument("output-directory=", "output directory", default=".")
         self.__ARG_PARSER.add_argument("Vertically", "split vertically instead of horizontally")
 
@@ -183,28 +184,33 @@ class Grep:
         filenames = list(itertools.chain.from_iterable(glob.glob(f) for f in self.__filenames))
         if not filenames:
             self.__error("No input files")
+        if not self.__nb_pieces and not self.__piece_size:
+            self._error("Choose either number of images or image split size")
         for infile in filenames:
+            nb_pieces = self.__nb_pieces
             img = Image.open(infile)
+            if not nb_pieces:
+                nb_pieces = img.size[int(self.__vertically)] // self.__piece_size
             if self.__vertically:
                 outw = img.size[0]
                 divided = img.size[1]
-                outh = divided//self.__nb_pieces
+                outh = divided//nb_pieces
             else:
                 divided = img.size[0]
-                outw = divided//self.__nb_pieces
+                outw = divided//nb_pieces
                 outh = img.size[1]
             self.__message("Processing {}, width {}, height {} into {} images ({},{})".format(infile,img.size[0],img.size[1],
-            self.__nb_pieces,outw,outh))
-            if divided % self.__nb_pieces:
+            nb_pieces,outw,outh))
+            if divided % nb_pieces:
                 self.__error("Can't split image evenly")
             curx=0
             cury=0
-            for i in range(self.__nb_pieces):
+            for i in range(nb_pieces):
                 outbase,ext = os.path.splitext(os.path.basename(infile))
                 outbase = "{}_{:02d}{}".format(outbase,i,ext)
 
                 outfile = os.path.join(self.__output_directory,outbase)
-                outimg = Image.new("RGB",(outw,outh))
+                outimg = Image.new("RGBA" if img.mode=="RGBA" else "RGB",(outw,outh))
 
 
                 outimg.paste(img,(-curx,-cury))
